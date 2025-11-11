@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Set
+from typing import Set
 
 from .models.storybook import StoryBook
 from ..core.adventure import BaseOopsPlugin, MomentEvent, Event
@@ -7,9 +7,8 @@ from ..core.moment import StageInfo, MomentCtx
 
 
 class StorybookPlugin(BaseOopsPlugin):
-    def __init__(self, storybook: Optional[StoryBook] = None):
-        self.storybook = storybook or StoryBook("global")
-        self._attached = False
+    storybook: StoryBook = StoryBook("undefined")
+    _attached = False
 
     def supported_events(self) -> Set[Event]:
         return {
@@ -25,8 +24,11 @@ class StorybookPlugin(BaseOopsPlugin):
         }
 
     def _ensure_attached(self, ctx: MomentCtx) -> None:
+        adv = ctx.moment.adv
         if not self._attached:
-            setattr(ctx.moment.adv, "storybook", self.storybook)
+            # 挂到 adv.storybook
+            setattr(adv, "storybook", self.storybook)
+            setattr(self.storybook, "title", getattr(adv, "name", "adventure"))
             self._attached = True
 
     def on_moment_enter(self, ctx: MomentCtx) -> None:

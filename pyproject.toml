@@ -7,24 +7,30 @@ name = "beautiful-oops"
 version = "0.1.0"
 description = "A gentle, story-driven supervision and recovery framework for Python — because every error deserves a story."
 authors = [
-  { name = "Sean Liu", email = "seanliu@nemovideo.com" }
+    { name = "Sean Liu", email = "seanliu@nemovideo.com" }
 ]
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "fastapi>=0.110",
+    "starlette>=0.37"
+]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=7.0",
-  "pytest-asyncio>=0.23",
-  "mypy>=1.8",
-  "ruff>=0.6",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.8",
+    "ruff>=0.6",
+    "fastapi>=0.110",
+    "starlette>=0.37"
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q -s"
+
 
 

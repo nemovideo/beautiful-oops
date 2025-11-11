@@ -16,14 +16,15 @@
 
 ## 🚀 快速上手
 ```python
-from beautiful_oops import oops_moment, Adventure, StorybookPlugin, StoryBook
+from beautiful_oops import oops_moment, Adventure, StorybookPlugin
 
 @oops_moment(chapter="Chapter I", stage="decode_scroll")
 def decode_scroll():
     return "ancient wisdom"
 
-adv = Adventure(name="demo", plugins=[StorybookPlugin(StoryBook("my-book"))])
-print("Scroll:", decode_scroll())
+adv = Adventure(name="demo", plugins=[StorybookPlugin()])
+with Adventure.auto(adv):
+    print("Scroll:", decode_scroll())
 ```
 
 ## 🧠 设计哲学
