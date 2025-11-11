@@ -1,7 +1,7 @@
 # beautiful_oops/integrations/fastapi/middleware.py
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Callable
 
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -19,7 +19,7 @@ class OopsAdventureMiddleware(BaseHTTPMiddleware):
             *,
             name: str = "fastapi",
             header_trace_id: str = "X-Trace-Id",
-            adventure_factory: Optional[callable] = None,
+            adventure_factory: Optional[Callable] = None,
     ):
         super().__init__(app)
         self.name = name
