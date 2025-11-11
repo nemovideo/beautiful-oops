@@ -72,17 +72,14 @@ def create_app() -> FastAPI:
 
     # 通过 adventure_factory 把“每请求一个 Adventure + 插件”的逻辑注入中间件
     def adventure_factory(name: str, trace_id: str) -> Adventure:
-        return make_adventure(name=name, trace_id=trace_id)
+        return make_adventure(name=f"{name} <${trace_id}>".format(name, trace_id), trace_id=trace_id)
 
     # 传入自定义工厂（中间件内部会用 async with Adventure.auto(adv) 包好整个请求）
     app.add_middleware(
         OopsAdventureMiddleware,
-        # 你自定义的名称会成为 StoryBook 标题
         name="my-fastapi-trace",
-        # 透传 trace-id 的请求头名（可自定）
         header_trace_id="X-Trace-Id",
-        # 关键：交给工厂构建 adv（挂好 Storybook & ConsoleSink 插件）
-        adventure_factory=adventure_factory,  # ← 需要你在中间件里支持这个参数
+        adventure_factory=adventure_factory,
     )
 
     register_routes(app)
