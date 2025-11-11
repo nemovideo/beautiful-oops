@@ -8,7 +8,7 @@ from ..core.moment import StageInfo, MomentCtx
 
 class StorybookPlugin(BaseOopsPlugin):
     def __init__(self, storybook: Optional[StoryBook] = None):
-        self.storybook = storybook or StoryBook("global")
+        self.storybook = storybook
         self._attached = False
 
     def supported_events(self) -> Set[Event]:
@@ -26,7 +26,13 @@ class StorybookPlugin(BaseOopsPlugin):
 
     def _ensure_attached(self, ctx: MomentCtx) -> None:
         if not self._attached:
-            setattr(ctx.moment.adv, "storybook", self.storybook)
+            adv = ctx.moment.adv
+            # 懒创建：优先用 adv.name 作为书名
+            if self.storybook is None:
+                title = getattr(adv, "name", "adventure")
+                self.storybook = StoryBook(title)
+            # 挂到 adv.storybook
+            setattr(adv, "storybook", self.storybook)
             self._attached = True
 
     def on_moment_enter(self, ctx: MomentCtx) -> None:
