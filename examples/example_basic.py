@@ -1,0 +1,51 @@
+import random
+
+from beautiful_oops import oops_moment, Adventure, SimpleBackoffElf, OopsSolution, StoryBook, \
+    StorybookPlugin, StorybookConsoleSinkPlugin
+
+
+@oops_moment(chapter="Chapter I", stage="decode_scroll")
+def decode_scroll():
+    return "ancient wisdom"
+
+
+@oops_moment(chapter="Chapter II", stage="reflect_illusion", elf=SimpleBackoffElf(rules={
+    ValueError: OopsSolution.RETRY,
+}))
+def reflect_illusion():
+    if random.random() < 0.7:
+        raise ValueError("mirror fog")
+    return "clear vision"
+
+
+@oops_moment(chapter="Chapter III", stage="cross_bridge", elf=SimpleBackoffElf(rules={
+    TypeError: OopsSolution.RETRY,
+}))
+def cross_bridge():
+    raise TypeError("bridge vanished")
+
+
+if __name__ == "__main__":
+
+    adv: Adventure = Adventure(name="try",
+                               plugins=[StorybookPlugin(StoryBook("my trace")), StorybookConsoleSinkPlugin()],
+                               debug=True)
+    with Adventure.auto(adv):
+        try:
+            print("Scroll:", decode_scroll())
+            print("Mirror:", reflect_illusion())
+            print("Bridge:", cross_bridge())
+        except Exception as e:
+            print("Adventure ended with:", e)
+
+        sb = getattr(adv, "storybook")
+
+        from datetime import datetime
+
+
+        def fmt_time(ts: float) -> str:
+            return datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+
+
+        print(" Treasures:", [(t.chapter, t.stage, t.value) for t in sb.treasures])
+        print(" Tears:", [(t.chapter, t.stage, t.error) for t in sb.tears])
