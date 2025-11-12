@@ -29,11 +29,7 @@ if __name__ == "__main__":
         name="my first adventure",
         plugins=[
             StorybookPlugin(),
-            StorybookConsoleSinkPlugin(  # 同步/异步开关按需设定
-                background=False,  # 同步脚本/单测建议 False，确保不会丢日志
-                show_duration=True,
-                only_when=lambda a: True
-            ),
+            StorybookConsoleSinkPlugin(),
         ],
         debug=True,
     )
