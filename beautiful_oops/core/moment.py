@@ -16,11 +16,12 @@ class StageInfo:
 class MomentCtx:
     moment: "Moment"
     attempt: int = 0
-    oops: OopsError | None = None
+    oops: Optional[OopsError] = None
     result: Any | None = None
     wait_seconds: float = 0.0
     span_id: Optional[str] = None
     parent_span_id: Optional[str] = None
+    cancelled: bool = False
 
 
 class Moment:

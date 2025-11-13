@@ -29,7 +29,6 @@ if __name__ == "__main__":
     adv = Adventure(
         name="my first adventure",
         plugins=[
-            TracingStackPlugin(),
             StorybookPlugin(),
             StorybookConsoleSinkPlugin(),
         ],

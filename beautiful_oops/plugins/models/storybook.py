@@ -10,6 +10,7 @@ class NodeStatus(str, Enum):
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -22,11 +23,13 @@ class AttemptInfo:
 
 @dataclass
 class RunInfo:
-    run_span: str                      # 对应 moment 的 span_id
-    attempts: List[AttemptInfo]        # 多个 attempt
+    run_span: str  # 对应 moment 的 span_id
+    attempts: List[AttemptInfo]  # 多个 attempt
     start_at: float
     end_at: float
     status: NodeStatus
+    chapter: str  # ✅ 新增
+    stage: str
 
     @property
     def duration(self) -> float:
@@ -43,6 +46,10 @@ class RunInfo:
     @property
     def failed(self) -> bool:
         return self.status == NodeStatus.FAILED
+
+    @property
+    def cancelled(self) -> bool:
+        return self.status == NodeStatus.CANCELLED
 
 
 class StageGroup:
@@ -67,6 +74,10 @@ class StageGroup:
     @property
     def fail_count(self) -> int:
         return len([r for r in self.runs if r.failed])
+
+    @property
+    def cancel_count(self) -> int:  # ✅ 新增
+        return len([r for r in self.runs if r.cancelled])
 
     @property
     def attempt_count(self) -> int:
@@ -99,7 +110,7 @@ class StageGroup:
         head = (
             f"┣━━ {self.chapter}/{self.stage}  "
             f"runs={self.run_count}  "
-            f"✅{self.success_count} 💀{self.fail_count}  "
+            f"✅{self.success_count} 💀{self.fail_count} 🚫{self.cancel_count}  "
             f"attempts={self.attempt_count}  "
             f"⏱p50={p50:.2f}s p95={p95:.2f}s"
         )
@@ -112,9 +123,16 @@ class StageGroup:
             is_last = (i == len(self.runs) - 1)
             connector = "┗━━" if is_last else "┣━━"
 
+            if run.success:
+                mark = "✅"
+            elif run.cancelled:
+                mark = "🚫"
+            else:
+                mark = "💀"
+
             run_line = (
                 f"{child_prefix}{connector} [span:{run.run_span}] "
-                f"{'✅' if run.success else '💀'}  "
+                f"{mark}  "
                 f"⏱ {run.duration:.2f}s"
             )
 
@@ -168,7 +186,22 @@ class StoryBook:
             start_at=time(),
             end_at=time(),
             status=NodeStatus.RUNNING,
+            chapter=chapter,
+            stage=stage,
         )
+
+    def moment_cancel(self, run_id: str, chapter: str, stage: str):
+        """
+        标记某个 moment 的 run 被取消（例如 asyncio.CancelledError）；
+        通常在插件收到 MomentEvent.CANCEL 时调用。
+        """
+        ri = self._active_moments.get(run_id)
+        if not ri:
+            return
+        ri.end_at = time()
+        ri.status = NodeStatus.CANCELLED
+        self.groups[(chapter, stage)].runs.append(ri)
+        del self._active_moments[run_id]
 
     def attempt_enter(self, run_id: str, span_id: str, attempt: int):
         ri = self._active_moments.get(run_id)
@@ -212,6 +245,8 @@ class StoryBook:
             show_attempt_spans: bool = True,
             attempt_span_limit: int = 3,
     ) -> str:
+        self._auto_close_active_as_cancelled()
+
         lines = [f"📘 Adventure: {self.title}"]
         groups = self.sorted_groups(sort=sort)
 
@@ -236,3 +271,16 @@ class StoryBook:
             lines.append(block)
 
         return "\n".join(lines)
+
+    def _auto_close_active_as_cancelled(self):
+        now = time()
+        for run_id, ri in list(self._active_moments.items()):
+            if ri.status == NodeStatus.RUNNING:
+                ri.end_at = now
+                ri.status = NodeStatus.CANCELLED
+                key = (ri.chapter, ri.stage)
+                if key not in self.groups:
+                    self.groups[key] = StageGroup(ri.chapter, ri.stage)
+                self.groups[key].runs.append(ri)
+            # 不管是不是 RUNNING，一律从 active 里删掉，避免重复
+            del self._active_moments[run_id]
