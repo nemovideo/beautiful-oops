@@ -1,7 +1,8 @@
 import random
+
 from beautiful_oops import (
     oops_moment, Adventure, SimpleBackoffElf, OopsSolution,
-    StorybookPlugin, StorybookConsoleSinkPlugin
+    StorybookPlugin, StorybookConsoleSinkPlugin, TracingStackPlugin
 )
 
 
@@ -28,15 +29,17 @@ if __name__ == "__main__":
     adv = Adventure(
         name="my first adventure",
         plugins=[
+            TracingStackPlugin(),
             StorybookPlugin(),
             StorybookConsoleSinkPlugin(),
         ],
         debug=True,
     )
     with Adventure.auto(adv):
-        try:
-            print("Scroll:", decode_scroll())
-            print("Mirror:", reflect_illusion())
-            print("Bridge:", cross_bridge())
-        except Exception as e:
-            print("Adventure ended with:", e)
+        for i in range(5):
+            try:
+                print("Scroll:", decode_scroll())
+                print("Mirror:", reflect_illusion())
+                print("Bridge:", cross_bridge())
+            except Exception as e:
+                print("Adventure ended with:", e)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beautiful-oops"
-version = "0.1.0"
+version = "0.1.3"
 description = "A gentle, story-driven supervision and recovery framework for Python — because every error deserves a story."
 authors = [
     { name = "Sean Liu", email = "seanliu@nemovideo.com" }

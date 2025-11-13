@@ -1,13 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Dict, List, Optional, Any, Tuple
 from time import time
-from typing import Any, Dict, List, Optional
-
-
-class NodeType(str, Enum):
-    MOMENT = "moment"
-    ATTEMPT = "attempt"
+import statistics
 
 
 class NodeStatus(str, Enum):
@@ -17,185 +13,226 @@ class NodeStatus(str, Enum):
 
 
 @dataclass
-class StoryNode:
-    node_id: str
-    node_type: NodeType
-    chapter: str
-    stage: str
-    attempt: Optional[int] = None
-    parent_id: Optional[str] = None
-    status: NodeStatus = NodeStatus.RUNNING
-    started_at: float = field(default_factory=time)
-    finished_at: Optional[float] = None
-    note: Optional[str] = None
-    result: Any = None
+class AttemptInfo:
+    span_id: str
+    attempt: int
+    duration: float
     error: Optional[str] = None
-    children: List[str] = field(default_factory=list)
 
-    def close(self, status: NodeStatus, note: Optional[str] = None) -> None:
-        if not self.finished_at:
-            self.finished_at = time()
-        self.status = status
-        if note:
-            self.note = note
+
+@dataclass
+class RunInfo:
+    run_span: str                      # 对应 moment 的 span_id
+    attempts: List[AttemptInfo]        # 多个 attempt
+    start_at: float
+    end_at: float
+    status: NodeStatus
 
     @property
-    def duration(self) -> Optional[float]:
-        if self.finished_at is None:
-            return None
-        return max(0.0, self.finished_at - self.started_at)
+    def duration(self) -> float:
+        return max(0.0, self.end_at - self.start_at)
+
+    @property
+    def attempt_count(self) -> int:
+        return len(self.attempts)
+
+    @property
+    def success(self) -> bool:
+        return self.status == NodeStatus.SUCCESS
+
+    @property
+    def failed(self) -> bool:
+        return self.status == NodeStatus.FAILED
 
 
-@dataclass
-class Treasure:
-    chapter: str
-    stage: str
-    value: Any
-    at: float = field(default_factory=time)
+class StageGroup:
+    """
+    聚合同 chapter / stage 的所有 run（也就是 moment）
+    """
+
+    def __init__(self, chapter: str, stage: str):
+        self.chapter = chapter
+        self.stage = stage
+        self.runs: List[RunInfo] = []
+
+    # ---- 统计 ----
+    @property
+    def run_count(self) -> int:
+        return len(self.runs)
+
+    @property
+    def success_count(self) -> int:
+        return len([r for r in self.runs if r.success])
+
+    @property
+    def fail_count(self) -> int:
+        return len([r for r in self.runs if r.failed])
+
+    @property
+    def attempt_count(self) -> int:
+        return sum(r.attempt_count for r in self.runs)
+
+    def latency_stats(self) -> Tuple[float, float]:
+        """返回 p50, p95"""
+        if not self.runs:
+            return 0.0, 0.0
+        durations = [r.duration for r in self.runs]
+        p50 = statistics.median(durations)
+        # p95 简单取 95 百分位
+        durations_sorted = sorted(durations)
+        p95 = durations_sorted[int(0.95 * (len(durations_sorted) - 1))]
+        return p50, p95
+
+    # ---- 渲染 ----
+    def render_ascii(
+            self,
+            limit: int = 3,
+            show_attempt_spans: bool = True,
+            attempt_span_limit: int = 3,
+            child_prefix: str = "┃   ",  # ⭐ 前缀从 StoryBook 注入
+    ) -> str:
+        if not self.runs:
+            return ""
+
+        p50, p95 = self.latency_stats()
+
+        head = (
+            f"┣━━ {self.chapter}/{self.stage}  "
+            f"runs={self.run_count}  "
+            f"✅{self.success_count} 💀{self.fail_count}  "
+            f"attempts={self.attempt_count}  "
+            f"⏱p50={p50:.2f}s p95={p95:.2f}s"
+        )
+
+        lines = [head]
+
+        display_runs = self.runs[-limit:]
+
+        for i, run in enumerate(display_runs):
+            is_last = (i == len(self.runs) - 1)
+            connector = "┗━━" if is_last else "┣━━"
+
+            run_line = (
+                f"{child_prefix}{connector} [span:{run.run_span}] "
+                f"{'✅' if run.success else '💀'}  "
+                f"⏱ {run.duration:.2f}s"
+            )
+
+            # attempts
+            if show_attempt_spans:
+                parts = []
+                for att in run.attempts[:attempt_span_limit]:
+                    if att.error:
+                        parts.append(f"A#{att.attempt}={att.duration:.2f}s, err={att.error}")
+                    else:
+                        parts.append(f"A#{att.attempt}={att.duration:.2f}s")
+
+                if len(run.attempts) > attempt_span_limit:
+                    parts.append("...")
+
+                if parts:
+                    run_line += f"  ({', '.join(parts)})"
+
+            lines.append(run_line)
+
+        # more
+        if len(self.runs) > limit:
+            more = f"{child_prefix}┗━━ … and {len(self.runs) - limit} more"
+            lines.append(more)
+
+        return "\n".join(lines)
 
 
-@dataclass
-class Tear:
-    chapter: str
-    stage: str
-    error: str
-    at: float = field(default_factory=time)
-
-
+# ================================================================
+# StoryBook：外部插件调用的主收集器
+# ================================================================
 class StoryBook:
+
     def __init__(self, title: str):
         self.title = title
-        self.nodes: Dict[str, StoryNode] = {}
-        self.roots: List[str] = []
-        self.treasures: List[Treasure] = []
-        self.tears: List[Tear] = []
+        # {(chapter,stage): StageGroup}
+        self.groups: Dict[Tuple[str, str], StageGroup] = {}
 
-    @staticmethod
-    def build_moment_id(trace_id: str, chapter: str, stage: str) -> str:
-        return f"{trace_id}:{chapter}/{stage}"
+        # moment_id => RunInfo（未关闭状态）
+        self._active_moments: Dict[str, RunInfo] = {}
 
-    @staticmethod
-    def build_attempt_id(trace_id: str, chapter: str, stage: str, attempt: int) -> str:
-        return f"{trace_id}:{chapter}/{stage}#{attempt}"
+    # ---- moment / attempt 记录 ----
+    def moment_enter(self, run_id: str, chapter: str, stage: str, span_id: str):
+        key = (chapter, stage)
+        if key not in self.groups:
+            self.groups[key] = StageGroup(chapter, stage)
 
-    @staticmethod
-    def parse_moment_id_from_attempt(attempt_id: str) -> str:
-        return attempt_id.split("#", 1)[0]
+        self._active_moments[run_id] = RunInfo(
+            run_span=span_id,
+            attempts=[],
+            start_at=time(),
+            end_at=time(),
+            status=NodeStatus.RUNNING,
+        )
 
-    def _ensure_node(self, node_id: str, node_type: NodeType, chapter: str, stage: str, attempt: Optional[int] = None,
-                     parent_id: Optional[str] = None) -> StoryNode:
-        node = self.nodes.get(node_id)
-        if node is None:
-            node = StoryNode(node_id=node_id, node_type=node_type, chapter=chapter, stage=stage, attempt=attempt,
-                             parent_id=parent_id)
-            self.nodes[node_id] = node
-            if node_type == NodeType.MOMENT:
-                if parent_id is None:
-                    self.roots.append(node_id)
-                elif parent_id in self.nodes:
-                    parent = self.nodes[parent_id]
-                    if node_id not in parent.children:
-                        parent.children.append(node_id)
-            elif parent_id and parent_id in self.nodes:
-                parent = self.nodes[parent_id]
-                if node_id not in parent.children:
-                    parent.children.append(node_id)
-        return node
-
-    def enter(self, trace_id: str, chapter: str, stage: str, parent_span_id: Optional[str] = None) -> str:
-        moment_id = self.build_moment_id(trace_id, chapter, stage)
-        parent_id = parent_span_id
-        self._ensure_node(moment_id, NodeType.MOMENT, chapter, stage, parent_id=parent_id)
-        return moment_id
-
-    def attempt_enter(self, trace_id: str, chapter: str, stage: str, attempt: int, span_id: Optional[str] = None,
-                      parent_span_id: Optional[str] = None) -> str:
-        attempt_id = span_id or self.build_attempt_id(trace_id, chapter, stage, attempt)
-        parent_id = parent_span_id or self.parse_moment_id_from_attempt(attempt_id)
-        self._ensure_node(parent_id, NodeType.MOMENT, chapter, stage, parent_id=None)
-        self._ensure_node(attempt_id, NodeType.ATTEMPT, chapter, stage, attempt=attempt, parent_id=parent_id)
-        return attempt_id
-
-    def attempt_success(self, attempt_id: str, result: Any) -> None:
-        node = self.nodes.get(attempt_id)
-        if not node:
+    def attempt_enter(self, run_id: str, span_id: str, attempt: int):
+        ri = self._active_moments.get(run_id)
+        if not ri:
             return
-        node.result = result
-        node.close(status=NodeStatus.SUCCESS)
-        parent_id = node.parent_id or self.parse_moment_id_from_attempt(attempt_id)
-        if parent_id in self.nodes:
-            m = self.nodes[parent_id]
-            if m.status == NodeStatus.RUNNING:
-                m.close(status=NodeStatus.SUCCESS)
-        self.treasures.append(Treasure(chapter=node.chapter, stage=node.stage, value=result))
+        ri.attempts.append(
+            AttemptInfo(
+                span_id=span_id,
+                attempt=attempt,
+                duration=0.0,
+            )
+        )
 
-    def attempt_fail(self, attempt_id: str, oops: Optional[Any]) -> None:
-        node = self.nodes.get(attempt_id)
-        if not node:
+    def attempt_end(self, run_id: str, span_id: str, attempt: int, duration: float, error: Optional[str] = None):
+        ri = self._active_moments.get(run_id)
+        if not ri:
             return
-        node.error = getattr(oops, "message", str(oops)) if oops else "unknown"
-        node.close(status=NodeStatus.FAILED, note=node.error)
+        # 更新 attempt 信息
+        if ri.attempts:
+            ri.attempts[-1].duration = duration
+            ri.attempts[-1].error = error
 
-    def fail(self, trace_id: str, chapter: str, stage: str, oops: Any) -> None:
-        moment_id = self.build_moment_id(trace_id, chapter, stage)
-        m = self._ensure_node(moment_id, NodeType.MOMENT, chapter, stage)
-        m.error = getattr(oops, "message", str(oops))
-        m.close(status=NodeStatus.FAILED, note=m.error)
-        self.tears.append(Tear(chapter=chapter, stage=stage, error=m.error))
+    def moment_end(self, run_id: str, chapter: str, stage: str, success: bool):
+        ri = self._active_moments.get(run_id)
+        if not ri:
+            return
+        ri.end_at = time()
+        ri.status = NodeStatus.SUCCESS if success else NodeStatus.FAILED
+        self.groups[(chapter, stage)].runs.append(ri)
+        del self._active_moments[run_id]
 
-    def get_roots(self) -> List[StoryNode]:
-        return [self.nodes[rid] for rid in self.roots if rid in self.nodes]
+    # ---- 分组排序 ----
+    def sorted_groups(self, sort: str = "order") -> List[StageGroup]:
+        return list(self.groups.values())
 
-    def get_children(self, node_id: str) -> List[StoryNode]:
-        node = self.nodes.get(node_id)
-        if not node:
-            return []
-        return [self.nodes[cid] for cid in node.children if cid in self.nodes]
+    # ---- 渲染 ----
+    def render_ascii(
+            self,
+            limit_per_stage: int = 3,
+            sort: str = "order",
+            show_attempt_spans: bool = True,
+            attempt_span_limit: int = 3,
+    ) -> str:
+        lines = [f"📘 Adventure: {self.title}"]
+        groups = self.sorted_groups(sort=sort)
 
-    def render_ascii(self, show_time: bool = True) -> str:
-        """
-        以树形结构输出：
-        - 使用 ┣━━ / ┗━━ 区分是否为同层的最后一个节点
-        - 使用 ┃ 维持上层未结束分支的竖线
-        - [M] / [A#n] 表示 moment / attempt
-        - ✅ / 💀 / ⏳ 表示状态
-        - 可选输出耗时
-        """
-        def mark(n: StoryNode) -> str:
-            return "✅" if n.status == NodeStatus.SUCCESS else ("💀" if n.status == NodeStatus.FAILED else "⏳")
+        for i, g in enumerate(groups):
+            is_last_group = (i == len(groups) - 1)
 
-        def tag(n: StoryNode) -> str:
-            return "[M]" if n.node_type == NodeType.MOMENT else f"[A#{n.attempt}]"
+            # ⭐ 非最后一个 group：children 用 |> "┃   "
+            # ⭐ 最后一个 group：children 用空格 "    "
+            child_prefix = "    " if is_last_group else "┃   "
 
-        def dur(n: StoryNode) -> str:
-            if not show_time:
-                return ""
-            if n.duration is None:
-                return ""
-            return f" ⏱ {n.duration:.2f}s"
+            block = g.render_ascii(
+                limit=limit_per_stage,
+                show_attempt_spans=show_attempt_spans,
+                attempt_span_limit=attempt_span_limit,
+                child_prefix=child_prefix,
+            )
 
-        lines: list[str] = []
+            # 换掉头的 connector
+            if is_last_group:
+                block = block.replace("┣━━", "┗━━", 1)
 
-        # 深度优先递归，携带“前缀”和“是否最后节点”的信息
-        def walk(node_id: str, prefix: str, is_last: bool):
-            node = self.nodes.get(node_id)
-            if not node:
-                return
-            connector = "┗━━" if is_last else "┣━━"
-            lines.append(f"{prefix}{connector} {tag(node)} {node.chapter}/{node.stage} {mark(node)}{dur(node)}")
-
-            children = self.get_children(node_id)
-            if not children:
-                return
-
-            # 下一层的前缀：若当前不是最后分支，需要延续竖线 ┃ ，否则留空格
-            child_prefix = prefix + ("    " if is_last else "┃   ")
-            for i, ch in enumerate(children):
-                walk(ch.node_id, child_prefix, i == len(children) - 1)
-
-        # 多棵根的情况，逐棵渲染
-        for ridx, root_id in enumerate([rid for rid in self.roots if rid in self.nodes]):
-            # 顶层没有前缀，仅按是否最后一棵根决定连接符
-            walk(root_id, prefix="", is_last=(ridx == len(self.roots) - 1))
+            lines.append(block)
 
         return "\n".join(lines)

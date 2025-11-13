@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from beautiful_oops.core.oops import OopsError
 
@@ -19,6 +19,8 @@ class MomentCtx:
     oops: OopsError | None = None
     result: Any | None = None
     wait_seconds: float = 0.0
+    span_id: Optional[str] = None
+    parent_span_id: Optional[str] = None
 
 
 class Moment:

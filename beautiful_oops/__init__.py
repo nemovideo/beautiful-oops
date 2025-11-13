@@ -6,6 +6,7 @@ from .plugins.storybook_plugin import StorybookPlugin
 from .plugins.models.storybook import StoryBook
 from .core.oops import OopsSolution, OopsCategory
 from .plugins.storybook_console_sink_plugin import StorybookConsoleSinkPlugin
+from .plugins.tracing_stack_plugin import TracingStackPlugin
 
 __all__ = [
     "oops_moment",
@@ -25,6 +26,7 @@ __all__ = [
     "StoryBook",
     "OopsSolution",
     "OopsCategory",
+    "TracingStackPlugin"
 
 ]
 __version__ = "0.1.0"
