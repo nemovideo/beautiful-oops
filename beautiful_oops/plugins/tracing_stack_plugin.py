@@ -1,6 +1,6 @@
 # beautiful_oops/plugins/tracing_stack_plugin.py
 from __future__ import annotations
-from typing import Optional, Set, List, Tuple
+from typing import Optional, Set, List
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime

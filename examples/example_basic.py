@@ -2,7 +2,7 @@ import random
 
 from beautiful_oops import (
     oops_moment, Adventure, SimpleBackoffElf, OopsSolution,
-    StorybookPlugin, StorybookConsoleSinkPlugin, TracingStackPlugin
+    StorybookPlugin, StorybookConsoleSinkPlugin
 )
 
 
