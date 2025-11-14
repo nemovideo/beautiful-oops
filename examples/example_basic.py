@@ -35,7 +35,7 @@ if __name__ == "__main__":
         debug=True,
     )
     with Adventure.auto(adv):
-        for i in range(5):
+        for i in range(4):
             try:
                 print("Scroll:", decode_scroll())
                 print("Mirror:", reflect_illusion())

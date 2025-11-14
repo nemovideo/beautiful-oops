@@ -247,7 +247,7 @@ class StoryBook:
     ) -> str:
         self._auto_close_active_as_cancelled()
 
-        lines = [f"📘 Adventure: {self.title}"]
+        lines = [f"[beautiful-oops] 📘 Adventure: {self.title}"]
         groups = self.sorted_groups(sort=sort)
 
         for i, g in enumerate(groups):
