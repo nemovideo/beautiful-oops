@@ -142,7 +142,7 @@ def _classify_exception(e: Exception, message: str) -> Tuple[OopsCategory, Optio
     if "badrequest" in message or "invalid_request_error" in message:
         return OopsCategory.BAD_REQUEST, 400
 
-    if "timeout" in message or "Request timed out or interrupted" in message:
+    if "timeout" in message or "Request timed out or interrupted" or "Connection reset by peer" in message:
         return OopsCategory.TIMEOUT, None
 
     return OopsCategory.UNKNOWN, status

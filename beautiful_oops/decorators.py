@@ -1,20 +1,19 @@
-from __future__ import annotations
 import asyncio
 from functools import wraps
-from typing import Optional, Callable, Any, Literal
+from typing import Optional, Callable, Any, Literal, Coroutine
+import inspect
 
 from .core.moment import StageInfo, Moment
 from .core.adventure import Adventure, get_pool, register_adventure, remove_adventure
 from .core.elf import Elf
 
-
 def oops_moment_auto(
-    *,
-    chapter: str,
-    stage: Optional[str] = None,
-    name: Optional[str] = None,
-    elf: Optional[Elf] = None,
-    mode: Literal["auto", "async", "sync"] = "auto",
+        *,
+        chapter: str,
+        stage: Optional[str] = None,
+        name: Optional[str] = None,
+        elf: Optional[Elf] = None,
+        mode: Literal["auto", "async", "sync"] = "auto",
 ):
     def deco(fn: Callable[..., Any]):
         async def _async_call(*args, **kwargs):
@@ -39,8 +38,14 @@ def oops_moment_auto(
                     finally:
                         remove_adventure(adv)
 
-        @wraps(fn)
         def wrapper(*args, **kwargs):
+            # Check if the function is an async generator
+            if inspect.isasyncgenfunction(fn):
+                async def wrapped_asyncgen(*args, **kwargs):
+                    async for item in fn(*args, **kwargs):
+                        yield item
+                return wrapped_asyncgen(*args, **kwargs)
+
             if mode == "async":
                 return _async_call(*args, **kwargs)
             if mode == "sync":
@@ -50,7 +55,7 @@ def oops_moment_auto(
                 except RuntimeError:
                     pass
                 return asyncio.run(_async_call(*args, **kwargs))
-            # auto
+            # auto: Try async first, fall back to sync
             try:
                 asyncio.get_running_loop()
                 return _async_call(*args, **kwargs)

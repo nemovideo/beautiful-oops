@@ -32,4 +32,9 @@ __all__ = [
 
 
 ]
-__version__ = "0.1.5"
+
+try:
+    from importlib import metadata as importlib_metadata
+    __version__ = importlib_metadata.version("beautiful-oops")
+except importlib_metadata.PackageNotFoundError:
+    __version__ = "0.0.0-dev"
