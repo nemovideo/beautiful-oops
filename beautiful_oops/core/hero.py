@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict
 
 from .moment import MomentCtx
-from .oops import OopsSolution
+from .oops import OopsSolution, OopsCategory
 
 
 @dataclass
@@ -21,6 +21,8 @@ class Decision:
 
 class Hero:
     def decide(self, *, ctx: MomentCtx, advice: Advice) -> Decision:
+        if ctx.oops.category == OopsCategory.CANCEL:
+            return Decision(action=OopsSolution.CANCEL)
         return Decision(action=advice.action, wait_seconds=advice.wait_seconds)
 
 

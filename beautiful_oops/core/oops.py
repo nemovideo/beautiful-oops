@@ -1,11 +1,16 @@
 from __future__ import annotations
 from enum import Enum
 import asyncio
+
+import anyio
 import errno
 import socket
 import ssl
 import http.client
 from typing import Optional, Tuple, Any
+
+from builtins import BaseExceptionGroup
+from contextlib import suppress
 
 
 class OopsSolution(Enum):
@@ -13,9 +18,11 @@ class OopsSolution(Enum):
     ABORT = "abort"
     IGNORE = "ignore"
     FALLBACK = "fallback"
+    CANCEL = "cancel"
 
 
 class OopsCategory(Enum):
+    CANCEL = "cancel"
     IO = "io"
     NETWORK = "network"
     TIMEOUT = "timeout"
@@ -28,13 +35,13 @@ class OopsCategory(Enum):
 
 class OopsError(RuntimeError):
     def __init__(
-        self,
-        cause: Exception,
-        message: Optional[str] = None,
-        safe_message: Optional[str] = None,
-        category: Optional[OopsCategory] = None,
-        advise: Optional[OopsSolution] = None,
-        extra: Optional[dict[str, Any]] = None,
+            self,
+            cause: Exception,
+            message: Optional[str] = None,
+            safe_message: Optional[str] = None,
+            category: Optional[OopsCategory] = None,
+            advise: Optional[OopsSolution] = None,
+            extra: Optional[dict[str, Any]] = None,
     ):
         self.cause = cause
         self.message = message or str(cause) or cause.__class__.__name__
@@ -71,6 +78,8 @@ def _safe_message_by_category(cat: OopsCategory) -> str:
 
 
 def _default_advise(cat: OopsCategory):
+    if cat == OopsCategory.CANCEL:
+        return OopsSolution.CANCEL
     if cat in (OopsCategory.TIMEOUT, OopsCategory.NETWORK, OopsCategory.RATE_LIMIT):
         return OopsSolution.RETRY
     if cat == OopsCategory.AUTH:
@@ -81,22 +90,25 @@ def _default_advise(cat: OopsCategory):
 
 
 def _classify_exception(e: Exception, message: str) -> Tuple[OopsCategory, Optional[int]]:
+    if _is_cancelled(e):
+        return OopsCategory.CANCEL, None
+
     if isinstance(e, (asyncio.TimeoutError, TimeoutError, socket.timeout)):
         return OopsCategory.TIMEOUT, None
 
     if isinstance(
-        e,
-        (
-            ConnectionError,
-            ConnectionAbortedError,
-            ConnectionRefusedError,
-            ConnectionResetError,
-            BrokenPipeError,
-            ssl.SSLError,
-            http.client.RemoteDisconnected,
-            http.client.CannotSendRequest,
-            http.client.CannotSendHeader,
-        ),
+            e,
+            (
+                    ConnectionError,
+                    ConnectionAbortedError,
+                    ConnectionRefusedError,
+                    ConnectionResetError,
+                    BrokenPipeError,
+                    ssl.SSLError,
+                    http.client.RemoteDisconnected,
+                    http.client.CannotSendRequest,
+                    http.client.CannotSendHeader,
+            ),
     ):
         return OopsCategory.NETWORK, None
 
@@ -116,6 +128,8 @@ def _classify_exception(e: Exception, message: str) -> Tuple[OopsCategory, Optio
             return OopsCategory.AUTH, status
         if 500 <= status <= 599:
             return OopsCategory.NETWORK, status
+        if status == 400:
+            return OopsCategory.BAD_REQUEST, status
         if status in (408,):
             return OopsCategory.TIMEOUT, status
 
@@ -127,6 +141,9 @@ def _classify_exception(e: Exception, message: str) -> Tuple[OopsCategory, Optio
 
     if "badrequest" in message or "invalid_request_error" in message:
         return OopsCategory.BAD_REQUEST, 400
+
+    if "timeout" in message or "Request timed out or interrupted" or "Connection reset by peer" in message:
+        return OopsCategory.TIMEOUT, None
 
     return OopsCategory.UNKNOWN, status
 
@@ -145,3 +162,31 @@ def _guess_http_status(e: Exception) -> Optional[int]:
         except Exception:
             pass
     return None
+
+
+def _is_cancelled(e: BaseException) -> bool:
+    """
+    最强 cancel 检测：
+    - asyncio.CancelledError
+    - anyio.CancelledException（内部优雅处理）
+    - ExceptionGroup(base_exception=CancelledError)
+    - BaseExceptionGroup 中包含 CancelledError
+    """
+    # 1. asyncio 原生取消
+    if isinstance(e, asyncio.CancelledError):
+        return True
+
+    # 2. anyio 取消类型（在三方库里很常见）
+    with suppress(Exception):
+        cancelled_cls = anyio.get_cancelled_exc_class()
+        if isinstance(e, cancelled_cls):
+            return True
+
+    # 3. Python 3.11 ExceptionGroup / BaseExceptionGroup
+    #    检查内部是否包含 CancelledError
+    if isinstance(e, BaseExceptionGroup):
+        for sub in e.exceptions:
+            if _is_cancelled(sub):
+                return True
+
+    return False

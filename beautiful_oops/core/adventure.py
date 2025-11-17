@@ -28,6 +28,7 @@ class MomentEvent(StrEnum):
     IGNORE = auto()
     ABORT = auto()
     EXIT = auto()
+    CANCEL = auto()
 
 
 class AdventureEvent(StrEnum):
@@ -156,11 +157,30 @@ class Adventure:
                 await self.emit_event(MomentEvent.SUCCESS, ctx)
                 break
 
+            except asyncio.CancelledError as e:
+                ctx.cancelled = True
+                ctx.oops = OopsError.of(e)
+
+                # no hero decide, world crashed
+                # decision = Decision(action=OopsSolution.CANCEL, wait_seconds=0)
+
+                await self.emit_event(MomentEvent.CANCEL, ctx)
+                await self.emit_event(MomentEvent.FAIL, ctx)
+
+                if self.debug:
+                    print(
+                        f"[CANCEL] {stage.chapter}/{stage.stage} "
+                        f"attempt={ctx.attempt}"
+                    )
+
+                # 非常重要：重新抛出 CancelledError，
+                # 让上层 asyncio.gather 维持“被取消”的语义
+                raise
+
             except Exception as e:
                 ctx.oops = OopsError.of(e)
                 advice = moment.elf.advise(ctx)
                 decision: Decision = moment.adv.hero.decide(ctx=ctx, advice=advice)
-
                 if decision.action == OopsSolution.ABORT:
                     await self.emit_event(MomentEvent.ABORT, ctx)
                     await self.emit_event(MomentEvent.FAIL, ctx)
