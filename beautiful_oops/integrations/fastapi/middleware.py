@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from typing import Callable, Optional, Protocol, Any, Dict
 
 from fastapi import Request, HTTPException
